@@ -1,0 +1,27 @@
+{
+  "name": "n8n-fuel-change-scraper",
+  "version": "1.0.0",
+  "description": "n8n workflows that pull **official regulated max fuel prices** into Neon for [carburantifvg.it](https://carburantifvg.it).",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/parse-gov-si.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aleve99/n8n-fuel-change-scraper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/aleve99/n8n-fuel-change-scraper/issues"
+  },
+  "homepage": "https://github.com/aleve99/n8n-fuel-change-scraper#readme",
+  "devDependencies": {
+    "@n8n/workflow-sdk": "^0.27.2",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}
