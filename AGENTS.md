@@ -89,7 +89,8 @@ fixtures/
 
 - SDK files under `workflows/` are what we validate/create with n8n MCP (`create_workflow_from_code`).
 - Parser SoT is `src/parse-gov-si.ts`. It is **inlined** into the scrape workflow Code node (n8n sandbox cannot import this repo) — keep them in sync.
-- Postgres credentials in SDK use `newCredential('TODO Neon Postgres Carburanti FVG')` until wired to the real Neon cred.
+- Postgres credentials in SDK use `newCredential('Neon Postgres Carburanti FVG')` (live id `sbf6GBft9YYQNdqi`).
+- Cache bust: httpBearerAuth `CarburantiFVG Revalidate` (= site `REVALIDATE_SECRET`).
 
 ## n8n workflows (v1)
 
@@ -100,11 +101,12 @@ Folder / name prefix: **CarburantiFVG** / `CF – …`.
    - Upsert `regulated_prices` for `SLO` (`country_id=0`) + `off_motorway` + Petrol/Diesel (`fuel_id` 0/1):
      - period containing today (Europe/Ljubljana) → `current_*`
      - announced future period (earliest `from > today` if present) → `next_*`, else clear `next_*`
-   - Set `source_url`, `source_retrieved_at`, `updated_at`.
+   - Upsert `RETURNING` only when price/date fields change (`IS DISTINCT FROM`); unchanged scrapes skip downstream.
+   - On change: `POST https://carburantifvg.it/api/revalidate` Bearer + `{ "tags": ["regulated-prices"] }` (same as fuel-backend). Soft-fail (`neverError`).
    - **Schedule:** daily **18:00 Europe/Ljubljana**.
 
 2. **`CF – Promote regulated prices`** (`workflows/promote-regulated-prices.ts`)
-   - No HTTP. Country-agnostic SQL:
+   - No scrape HTTP. Country-agnostic SQL:
 
 ```sql
 UPDATE regulated_prices
@@ -119,7 +121,8 @@ WHERE next_reference IS NOT NULL
 ```
 
    - **Schedule:** daily **00:05 Europe/Ljubljana**.
-   - Scrape still owns discovering `next_*`; promote only rolls the calendar.
+   - Scrape owns discovering `next_*`; promote rolls the calendar.
+   - When promote `RETURNING` non-empty → same revalidate (`regulated-prices`).
 
 ## Frontend expectations
 

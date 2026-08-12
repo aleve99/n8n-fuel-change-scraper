@@ -21,8 +21,8 @@ Official source (e.g. GOV.SI)
   → frontend
 ```
 
-- **Scrape** — upsert `current_reference` / `next_reference`
-- **Promote** — roll `next_*` → `current_*` when the effective date arrives
+- **Scrape** — upsert `current_reference` / `next_reference`; on real change → `POST /api/revalidate` (`regulated-prices`)
+- **Promote** — roll `next_*` → `current_*` when the effective date arrives; same revalidate when rows move
 
 ## Source layout
 
@@ -47,7 +47,8 @@ npm run typecheck
 | `CF – SI Scrape regulated prices` | daily 18:00 | `workflows/si-scrape-regulated-prices.ts` |
 | `CF – Promote regulated prices` | daily 00:05 | `workflows/promote-regulated-prices.ts` |
 
-Postgres: credential **Neon Postgres Carburanti FVG** (wired on the live n8n workflows).
+Postgres: credential **Neon Postgres Carburanti FVG** (wired on the live n8n workflows).  
+Revalidate: Bearer credential **CarburantiFVG Revalidate** (= site `REVALIDATE_SECRET`) — create in n8n and attach to both workflows’ revalidate nodes, then publish.
 
 ## Scope (v1)
 

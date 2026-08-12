@@ -12,8 +12,10 @@ import {
  *
  * SoT for parse logic: src/parse-gov-si.ts — keep jsCode below in sync.
  *
- * Postgres credential: newCredential('Neon Postgres Carburanti FVG')
- * (n8n id sbf6GBft9YYQNdqi — setNodeCredential on live workflow).
+ * Postgres: Neon Postgres Carburanti FVG (sbf6GBft9YYQNdqi)
+ * Revalidate: httpBearerAuth "CarburantiFVG Revalidate" = REVALIDATE_SECRET
+ *   POST https://carburantifvg.it/api/revalidate  { tags: ["regulated-prices"] }
+ *   Only runs when upsert RETURNING has rows (price/date fields actually changed).
  */
 
 const SOURCE_URL = 'https://www.gov.si/teme/cene-naftnih-derivatov/';
@@ -287,6 +289,10 @@ const upsertPrices = node({
         '  source_url = EXCLUDED.source_url,\n' +
         '  source_retrieved_at = EXCLUDED.source_retrieved_at,\n' +
         '  updated_at = now()\n' +
+        'WHERE regulated_prices.current_reference IS DISTINCT FROM EXCLUDED.current_reference\n' +
+        '   OR regulated_prices.current_effective_from IS DISTINCT FROM EXCLUDED.current_effective_from\n' +
+        '   OR regulated_prices.next_reference IS DISTINCT FROM EXCLUDED.next_reference\n' +
+        '   OR regulated_prices.next_effective_from IS DISTINCT FROM EXCLUDED.next_effective_from\n' +
         'RETURNING *;',
       options: {
         // Pass array (not join) — empty next_* must not collapse $n slots.
@@ -323,12 +329,62 @@ const upsertPrices = node({
   ],
 });
 
+// Collapses 1–2 RETURNING rows into one item so revalidate fires once.
+// 0 RETURNING rows (no price change) → Aggregate skipped → no revalidate.
+const aggregateChanged = node({
+  type: 'n8n-nodes-base.aggregate',
+  version: 1,
+  config: {
+    name: 'Aggregate Changed Rows',
+    parameters: {
+      aggregate: 'aggregateAllItemData',
+      destinationFieldName: 'changed',
+      include: 'allFields',
+    },
+    position: [1420, 300],
+  },
+  output: [{ changed: [{ fuel_id: 0 }] }],
+});
+
+const revalidateCache = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Revalidate regulated-prices',
+    parameters: {
+      method: 'POST',
+      url: 'https://carburantifvg.it/api/revalidate',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpBearerAuth',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: { tags: ['regulated-prices'] },
+      options: {
+        timeout: 30000,
+        response: {
+          response: {
+            neverError: true,
+          },
+        },
+      },
+    },
+    credentials: {
+      httpBearerAuth: newCredential('CarburantiFVG Revalidate'),
+    },
+    position: [1660, 300],
+  },
+  output: [{ revalidated: true }],
+});
+
 const note = sticky(
   '## SI scrape\n' +
     '- Schedule: daily **18:00 Europe/Ljubljana**\n' +
     '- Parser SoT: `src/parse-gov-si.ts` (mirrored in Parse Periods)\n' +
-    '- Postgres credential: `Neon Postgres Carburanti FVG` (sbf6GBft9YYQNdqi)',
-  [dailySchedule, upsertPrices],
+    '- Postgres: `Neon Postgres Carburanti FVG`\n' +
+    '- After real price/date change → POST `/api/revalidate` tag `regulated-prices`\n' +
+    '- Bearer cred: `CarburantiFVG Revalidate` (= `REVALIDATE_SECRET`)',
+  [dailySchedule, revalidateCache],
   { color: 4 },
 );
 
@@ -341,4 +397,6 @@ export default workflow(
   .to(fetchGovSi)
   .to(parsePeriods)
   .to(upsertPrices)
+  .to(aggregateChanged)
+  .to(revalidateCache)
   .add(note);

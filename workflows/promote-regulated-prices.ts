@@ -12,8 +12,9 @@ import {
  * Rolls next_* → current_* when next_effective_from <= CURRENT_DATE.
  * Country-agnostic; scrape owns discovering next_*.
  *
- * Postgres credential: newCredential('Neon Postgres Carburanti FVG')
- * (n8n id sbf6GBft9YYQNdqi — setNodeCredential on live workflow).
+ * Postgres: Neon Postgres Carburanti FVG (sbf6GBft9YYQNdqi)
+ * On actual promote (RETURNING rows) → revalidate tag regulated-prices
+ * Bearer: CarburantiFVG Revalidate (= REVALIDATE_SECRET)
  */
 
 const dailySchedule = trigger({
@@ -66,12 +67,59 @@ const promoteNext = node({
   output: [],
 });
 
+const aggregatePromoted = node({
+  type: 'n8n-nodes-base.aggregate',
+  version: 1,
+  config: {
+    name: 'Aggregate Promoted Rows',
+    parameters: {
+      aggregate: 'aggregateAllItemData',
+      destinationFieldName: 'promoted',
+      include: 'allFields',
+    },
+    position: [760, 300],
+  },
+  output: [{ promoted: [{ fuel_id: 0 }] }],
+});
+
+const revalidateCache = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.4,
+  config: {
+    name: 'Revalidate regulated-prices',
+    parameters: {
+      method: 'POST',
+      url: 'https://carburantifvg.it/api/revalidate',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpBearerAuth',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: { tags: ['regulated-prices'] },
+      options: {
+        timeout: 30000,
+        response: {
+          response: {
+            neverError: true,
+          },
+        },
+      },
+    },
+    credentials: {
+      httpBearerAuth: newCredential('CarburantiFVG Revalidate'),
+    },
+    position: [1000, 300],
+  },
+  output: [{ revalidated: true }],
+});
+
 const note = sticky(
   '## Promote\n' +
     '- Schedule: daily **00:05 Europe/Ljubljana**\n' +
-    '- No-op when no due `next_*` rows\n' +
-    '- Postgres credential: `Neon Postgres Carburanti FVG` (sbf6GBft9YYQNdqi)',
-  [dailySchedule, promoteNext],
+    '- No-op when no due `next_*` rows (skips revalidate)\n' +
+    '- On promote → POST `/api/revalidate` tag `regulated-prices`\n' +
+    '- Bearer: `CarburantiFVG Revalidate`',
+  [dailySchedule, revalidateCache],
   { color: 5 },
 );
 
@@ -81,4 +129,6 @@ export default workflow(
 )
   .add(dailySchedule)
   .to(promoteNext)
+  .to(aggregatePromoted)
+  .to(revalidateCache)
   .add(note);
