@@ -4,6 +4,7 @@ import {
   trigger,
   sticky,
   newCredential,
+  ifElse,
   expr,
 } from '@n8n/workflow-sdk';
 
@@ -11,6 +12,10 @@ import {
  * CF – SI Scrape regulated prices
  *
  * SoT for parse logic: src/parse-gov-si.ts — keep jsCode below in sync.
+ *
+ * scheduleTrigger v1.3 has no timezone parameter; times resolve against the
+ * workflow timezone (Europe/Ljubljana). Daily 18:00 always scrapes. Monday
+ * hourly 09–17 & 19–21 skips GOV.SI once next_* is already in Neon.
  *
  * Postgres: Neon Postgres Carburanti FVG (sbf6GBft9YYQNdqi)
  * Revalidate: httpBearerAuth "CarburantiFVG Revalidate" = REVALIDATE_SECRET
@@ -174,11 +179,82 @@ const dailySchedule = trigger({
           },
         ],
       },
-      timezone: 'Europe/Ljubljana',
     },
     position: [220, 300],
   },
   output: [{}],
+});
+
+const mondayHourly = trigger({
+  type: 'n8n-nodes-base.scheduleTrigger',
+  version: 1.3,
+  config: {
+    name: 'Monday hourly Ljubljana',
+    parameters: {
+      rule: {
+        interval: [
+          {
+            field: 'cronExpression',
+            expression: '0 9-17,19-21 * * 1',
+          },
+        ],
+      },
+    },
+    position: [220, 540],
+  },
+  output: [{}],
+});
+
+const checkNextPublished = node({
+  type: 'n8n-nodes-base.postgres',
+  version: 2.6,
+  config: {
+    name: 'Check Next Published',
+    parameters: {
+      operation: 'executeQuery',
+      query:
+        'SELECT EXISTS (\n' +
+        '  SELECT 1\n' +
+        '  FROM regulated_prices rp\n' +
+        '  JOIN regulated_price_regimes r ON r.id = rp.regime_id\n' +
+        "  WHERE rp.country_id = 0\n" +
+        "    AND r.code = 'off_motorway'\n" +
+        '    AND rp.next_reference IS NOT NULL\n' +
+        ') AS already_announced;',
+    },
+    credentials: {
+      postgres: newCredential('Neon Postgres Carburanti FVG'),
+    },
+    position: [460, 540],
+  },
+  output: [{ already_announced: false }],
+});
+
+const alreadyAnnounced = ifElse({
+  version: 2.3,
+  config: {
+    name: 'Already Announced?',
+    parameters: {
+      conditions: {
+        combinator: 'and',
+        options: {
+          caseSensitive: true,
+          leftValue: '',
+          typeValidation: 'loose',
+          version: 2,
+        },
+        conditions: [
+          {
+            id: 'announced',
+            leftValue: expr('{{ $json.already_announced }}'),
+            operator: { type: 'boolean', operation: 'equals' },
+            rightValue: true,
+          },
+        ],
+      },
+    },
+    position: [700, 540],
+  },
 });
 
 const getRegimeId = node({
@@ -278,7 +354,9 @@ const upsertPrices = node({
         ') VALUES (\n' +
         '  $1::int, $2::int, $3::int,\n' +
         '  $4::numeric, $5::date,\n' +
-        "  NULLIF($6, '')::numeric, NULLIF($7, '')::date,\n" +
+        // ::text first — pg-promise inlines $n literals, so a bare NULLIF($6, '')
+        // resolves to numeric once next_reference is a real number and ''::numeric fails.
+        "  NULLIF($6::text, '')::numeric, NULLIF($7::text, '')::date,\n" +
         "  'EUR', 'EUR/L', $8, $9::timestamptz, now()\n" +
         ')\n' +
         'ON CONFLICT (country_id, regime_id, fuel_id) DO UPDATE SET\n' +
@@ -379,11 +457,11 @@ const revalidateCache = node({
 
 const note = sticky(
   '## SI scrape\n' +
-    '- Schedule: daily **18:00 Europe/Ljubljana**\n' +
+    '- Daily **18:00 Europe/Ljubljana** (always fetch)\n' +
+    '- Monday **09–17 & 19–21** hourly until `next_*` is set, then skip HTTP\n' +
     '- Parser SoT: `src/parse-gov-si.ts` (mirrored in Parse Periods)\n' +
     '- Postgres: `Neon Postgres Carburanti FVG`\n' +
-    '- After real price/date change → POST `/api/revalidate` tag `regulated-prices`\n' +
-    '- Bearer cred: `CarburantiFVG Revalidate` (= `REVALIDATE_SECRET`)',
+    '- After real price/date change → POST `/api/revalidate` tag `regulated-prices`',
   [dailySchedule, revalidateCache],
   { color: 4 },
 );
@@ -399,4 +477,7 @@ export default workflow(
   .to(upsertPrices)
   .to(aggregateChanged)
   .to(revalidateCache)
+  .add(mondayHourly)
+  .to(checkNextPublished)
+  .to(alreadyAnnounced.onFalse!(getRegimeId))
   .add(note);

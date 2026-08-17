@@ -12,6 +12,9 @@ import {
  * Rolls next_* → current_* when next_effective_from <= CURRENT_DATE.
  * Country-agnostic; scrape owns discovering next_*.
  *
+ * scheduleTrigger v1.3 has no timezone parameter; 00:05 is resolved against the
+ * workflow's timezone setting (n8n UI → Workflow settings), not this file.
+ *
  * Postgres: Neon Postgres Carburanti FVG (sbf6GBft9YYQNdqi)
  * On actual promote (RETURNING rows) → revalidate tag regulated-prices
  * Bearer: CarburantiFVG Revalidate (= REVALIDATE_SECRET)
@@ -33,7 +36,6 @@ const dailySchedule = trigger({
           },
         ],
       },
-      timezone: 'Europe/Ljubljana',
     },
     position: [220, 300],
   },

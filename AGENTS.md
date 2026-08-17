@@ -38,7 +38,7 @@ Ingest **official regulated maximum fuel prices** (when available), store them i
 5. **Neon:** reuse **Carburanti FVG**.
 6. **Frontend:** existing dashboard repo above.
 7. **n8n folder:** **CarburantiFVG**.
-8. **Schedule:** scrape daily 18:00 Europe/Ljubljana; promote daily 00:05 Europe/Ljubljana (SI decree windows are weekly; scrape catches day-before announcements).
+8. **Schedule:** scrape daily 18:00 Europe/Ljubljana **plus Monday hourly 09–17 & 19–21** until `next_*` is stored (then Monday extras skip HTTP); promote daily 00:05 Europe/Ljubljana.
 9. **Notifications:** DB only.
 10. **Fuels:** stick to existing catalog — **Petrol** (`fuels.id = 0`, maps to NMB-95) and **Diesel** (`fuels.id = 1`). No KOEL / NMB-98 / LPG in v1.
 11. **Regimes (option C):** `regulated_price_regimes` table. For SI seed **only** `off_motorway`. Do **not** invent a motorway regulated max while the law leaves AC/HC free-market.
@@ -103,7 +103,7 @@ Folder / name prefix: **CarburantiFVG** / `CF – …`.
      - announced future period (earliest `from > today` if present) → `next_*`, else clear `next_*`
    - Upsert `RETURNING` only when price/date fields change (`IS DISTINCT FROM`); unchanged scrapes skip downstream.
    - On change: `POST https://carburantifvg.it/api/revalidate` Bearer + `{ "tags": ["regulated-prices"] }` (same as fuel-backend). Soft-fail (`neverError`).
-   - **Schedule:** daily **18:00 Europe/Ljubljana**.
+   - **Schedule:** daily **18:00 Europe/Ljubljana** (always fetch). Monday **09–17 & 19–21** hourly: skip fetch once `next_*` is already set.
 
 2. **`CF – Promote regulated prices`** (`workflows/promote-regulated-prices.ts`)
    - No scrape HTTP. Country-agnostic SQL:

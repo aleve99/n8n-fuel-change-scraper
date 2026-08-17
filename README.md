@@ -44,7 +44,7 @@ npm run typecheck
 
 | Name | Schedule (Europe/Ljubljana) | File |
 |------|----------------------------|------|
-| `CF – SI Scrape regulated prices` | daily 18:00 | `workflows/si-scrape-regulated-prices.ts` |
+| `CF – SI Scrape regulated prices` | daily 18:00; Monday 09–17 & 19–21 hourly until `next_*` | `workflows/si-scrape-regulated-prices.ts` |
 | `CF – Promote regulated prices` | daily 00:05 | `workflows/promote-regulated-prices.ts` |
 
 Postgres: credential **Neon Postgres Carburanti FVG** (wired on the live n8n workflows).  
