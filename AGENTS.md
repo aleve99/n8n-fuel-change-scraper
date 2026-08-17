@@ -117,7 +117,7 @@ SET
   next_effective_from = NULL,
   updated_at = now()
 WHERE next_reference IS NOT NULL
-  AND next_effective_from <= CURRENT_DATE;
+  AND next_effective_from <= (now() AT TIME ZONE 'Europe/Ljubljana')::date;
 ```
 
    - **Schedule:** daily **00:05 Europe/Ljubljana**.
